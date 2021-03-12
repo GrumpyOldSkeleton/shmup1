@@ -34,11 +34,13 @@ D_RIGHT = 3
 # https://stackoverflow.com/questions/18273722/pygame-sound-delay/18513365
 # pygame2 apparently does not require the mixer pre init()
 # but keeping it seems to still cure the sdl bug 
-pygame.mixer.pre_init(22050, -16, 2, 512)
+#pygame.mixer.pre_init(22050, -16, 2, 512)
 pygame.mixer.init()
 pygame.init()
 pygame.display.set_caption('Shmup1')
-screen = pygame.display.set_mode([SCREEN_WIDTH, SCREEN_HEIGHT])
+#screen = pygame.display.set_mode([SCREEN_WIDTH, SCREEN_HEIGHT])
+
+screen = pygame.display.set_mode([SCREEN_WIDTH, SCREEN_HEIGHT], pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.SCALED, vsync=1)
 clock = pygame.time.Clock()
       
 #=======================================================================
@@ -62,12 +64,12 @@ class ScorePartical():
         
         self.vel.add(self.acc)
         self.pos.add(self.vel)
-        self.alpha -= abs(self.vel.y)
+        self.alpha -= 0.2
         self.alpha = max(0,self.alpha)
         self.image.set_alpha(self.alpha)
         
         # gravity hack
-        self.vel.y += 0.5
+        self.vel.y += 1.6
         
     def draw(self):
         
@@ -104,7 +106,7 @@ class Partical():
         
         self.vel.add(self.acc)
         self.pos.add(self.vel)
-        self.alpha -= 0.1 #abs(self.vel.y)
+        self.alpha -= 0.1 
         self.alpha = max(0,self.alpha)
         self.image.set_alpha(self.alpha)
         
@@ -316,11 +318,10 @@ class EnemySploder():
     
     def __init__(self, x, y, score_value, score_image_index, game):
         
-        speedx = 5
-        speedy = 0.9
+        speedy = 0.1
         
         self.pos   = Vector2(x, y)
-        self.vel   = Vector2(random.randrange(-5, 5), 3 + random.random() * speedy)
+        self.vel   = Vector2(random.randrange(-1, 1), 1 + random.random() * speedy)
         self.rect  = None
         self.image = None
         self.dead  = False
@@ -344,7 +345,7 @@ class EnemySploder():
         # don't kill if we go off screen instead put enemy back to top
         if self.pos.y > SCREEN_HEIGHT or self.pos.x < -50 or self.pos.x > SCREEN_WIDTH:
             self.pos.x = random.randint(100, SCREEN_WIDTH-100)
-            self.pos.y = random.randint(-600, -100)
+            self.pos.y = -50
         
         self.rect.x = self.pos.x
         self.rect.y = self.pos.y
@@ -355,12 +356,10 @@ class EnemySploder():
         
         if self.isOnscreen:
             x = random.random()
-            if x > 0.995:
+            if x > 0.99:
                 vx = -4
                 vy = 7
-                game.enemyFire(self.pos.x + 16, self.pos.y, vx, vy)
-                game.enemyFire(self.pos.x + 16, self.pos.y,  0, vy)
-                game.enemyFire(self.pos.x + 16, self.pos.y, -vx, vy)
+                game.enemyFire(self.pos.x + 16, self.pos.y, vx, vy, self)
 
     def isOnscreen(self):
         
@@ -425,7 +424,7 @@ class Enemy():
             bullet_vy = 7 + random.random()
             
             if x > 0.995:
-                game.enemyFire(self.pos.x + 16, self.pos.y, bullet_vx, bullet_vy)
+                game.enemyFire(self.pos.x + 16, self.pos.y, bullet_vx, bullet_vy, self)
 
     def isOnscreen(self):
         
@@ -587,6 +586,11 @@ class EnemyBullet():
         self.rect = self.image.get_rect()
         self.dead = False
         
+    def setImage(self, image):
+        
+        self.image = image
+        self.rect = self.image.get_rect()
+        
     def isDead(self):
         
         return self.dead or self.pos.y > SCREEN_HEIGHT
@@ -669,6 +673,32 @@ class Token():
         
         screen.blit(self.images[0], (self.pos.x, self.pos.y))
         
+        
+class BackgroundScroller():
+    
+    def __init__(self, game):
+        
+        self.scroller_init_offy = -5112
+        self.scroller_curr_offy = -5112
+        self.scroller_image = game.scroller_image
+    
+    def update(self):
+        
+        pass
+    
+    def draw(self):
+        
+        self.scroller_curr_offy += 8
+        
+        if self.scroller_curr_offy > 0: 
+            screen.blit(self.scroller_image,(0,self.scroller_init_offy - self.scroller_curr_offy))
+            
+        if self.scroller_curr_offy > SCREEN_HEIGHT:
+            self.scroller_curr_offy = self.scroller_init_offy
+            
+        screen.blit(self.scroller_image,(0,self.scroller_curr_offy))
+        
+        
 # ======================================================================
 # intro screen class
 # ======================================================================
@@ -733,27 +763,49 @@ class ScreenGameOver():
     def __init__(self, game):
         
         self.game  = game
-        self.score = None
+        self.score = 0
         self.score_offsetx = 0 
-        self.title = self.game.font_small.render('GAME OVER!', 0,  palettes.COLOUR_PICO8_RED)
+        self.final_score_letters = []
+        self.game_over_letters = []
+        self.letter_spacing = 0
+
+        self.game_over_letters   = self.makeLetters(self.game.font_title, 'GAME OVER!', palettes.COLOUR_PICO8_RED)
+        self.final_score_letters = self.makeLetters(self.game.font_title, 'YOU SCORED', palettes.COLOUR_PICO8_YELLOW)
+
+       
+    def makeLetters(self, font, message, colour):
         
+        r = []
+        for char in list(message):
+            r.append(font.render(char, 0, colour))
+            
+        return r
+            
     def reset(self):
         
-        pass
+        self.letter_spacing = 0
         
     def setFinalScore(self):
         
         self.score = self.game.font_title.render(str(self.game.score), 0,  palettes.COLOUR_PICO8_YELLOW)
         self.score_offsetx = (SCREEN_WIDTH - self.score.get_width()) // 2
-        
-    def update(self):
-        
-        pass
+        self.reset()
         
     def draw(self):
         
-        screen.blit(self.title, (100, 200))
-        screen.blit(self.score, (self.score_offsetx, 400))
+        offset1 = 260 - (self.letter_spacing * 4)
+        offset2 = 250 - (self.letter_spacing * 4)
+        
+        if self.letter_spacing < 50:
+            self.letter_spacing += 1
+        
+        for x, letter_image in enumerate(self.game_over_letters):
+            screen.blit(letter_image, (offset1 + (x * self.letter_spacing), 100))
+            
+        for x, letter_image in enumerate(self.final_score_letters):
+            screen.blit(letter_image, (offset2 + (x * self.letter_spacing), 300))    
+            
+        screen.blit(self.score, (self.score_offsetx, 500))
         
         
 # ======================================================================
@@ -813,6 +865,7 @@ class Game():
         self.enemy_images        = [] # the enemy images
         self.enemy_sounds        = [] # the enemy sounds
         self.enemy_bullets       = [] # live enemy bullets
+        self.enemy_bullet_images = [] # enemy bullet images
         self.player_bullets      = [] # live player bullets
         self.powerups            = [] # live powerups
         self.tokens              = [] # live tokens
@@ -824,8 +877,6 @@ class Game():
         self.font_title          = None       
         self.screen_edge         = None
         self.scroller_image      = None
-        self.scroller_init_offy  = -5112
-        self.scroller_curr_offy  = -5112
         self.player_bullet_image = None
         self.player_life_image   = None
         self.sound_player_zap    = None
@@ -838,6 +889,7 @@ class Game():
         self.screen_intro        = ScreenIntro(self)
         self.screen_life_lost    = ScreenLifeLost(self)
         self.screen_game_over    = ScreenGameOver(self)
+        self.background_scroller = BackgroundScroller(self)
 
 
     def spaceBarPressed(self):
@@ -861,17 +913,35 @@ class Game():
 
     def resumeAfterLifeLost(self):
         
-        self.enemies        = []
-        self.enemy_bullets  = []
-        self.player_bullets = []
-        self.powerups       = []
-        self.tokens         = []
+        self.player.gun_heat = 0
+        self.enemies         = []
+        self.enemy_bullets   = []
+        self.player_bullets  = []
+        self.powerups        = []
+        self.tokens          = []
         self.psc.killAll() 
 
-    def enemyFire(self, x, y, vx, vy):
+
+    def enemyFire(self, x, y, vx, vy, enemytype):
+        
+        if isinstance(enemytype, EnemySploder):
+            
+            self.enemy_sounds[1].play()
+            self.addEnemyBullet(x, y, vx,  vy, 1)
+            self.addEnemyBullet(x, y, 0,   vy, 2)
+            self.addEnemyBullet(x, y, -vx, vy, 3)
+            
+        elif isinstance(enemytype, Enemy):
+            
+            self.addEnemyBullet(x, y, vx,  vy, 0)
+    
+    
+    def addEnemyBullet(self, x, y, vx, vy, img_idx):
         
         eb = EnemyBullet(x, y, vx, vy)
+        eb.setImage(self.enemy_bullet_images[img_idx])
         self.enemy_bullets.append(eb)
+        
         
     def fire(self):
         
@@ -887,10 +957,10 @@ class Game():
         
     def spawnEnemy(self):
         
-        if len(self.enemies) < 8:
+        if len(self.enemies) < 6:
             x = random.random()
             
-            if x < 0.99:
+            if x < 0.9:
                 score_image_index = random.randint(0, self.enemy_image_count-2) # excludes sploder image
                 score_value       = 10 + (score_image_index * 10) # score now matches the partical score image
                 e = Enemy(random.randint(100,SCREEN_WIDTH-100), random.randint(-600, -100), score_value, score_image_index, self)
@@ -899,7 +969,7 @@ class Game():
                 self.enemy_sounds[0].play()
                 score_image_index = 3
                 score_value = 40
-                e = EnemySploder(random.randint(100,SCREEN_WIDTH-100), random.randint(-600, -100), score_value, score_image_index, self)
+                e = EnemySploder(random.randint(100,SCREEN_WIDTH-100), -50, score_value, score_image_index, self)
                 e.setImage(self.enemy_images[self.enemy_image_count-1]) 
                 
             self.enemies.append(e)
@@ -944,6 +1014,12 @@ class Game():
         self.sound_player_zap   = pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'player_zap.ogg')))
         self.sound_player_death = pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'player_death.ogg')))
         
+        # load enemy bullet images
+        self.enemy_bullet_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'enemy_bullet_1.png'))).convert())
+        self.enemy_bullet_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'enemy_bullet_2.png'))).convert())
+        self.enemy_bullet_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'enemy_bullet_3.png'))).convert())
+        self.enemy_bullet_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'enemy_bullet_4.png'))).convert())
+        
         # load enemy explosion sounds
         self.sound_enemy_dead.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'enemy_dead_1.ogg'))))
         self.sound_enemy_dead.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'enemy_dead_2.ogg'))))
@@ -952,6 +1028,7 @@ class Game():
         
         # load enemy spawn and shoot sounds
         self.enemy_sounds.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'enemy_spawn_1.ogg'))))
+        self.enemy_sounds.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'enemy_zap_1.ogg'))))
          
         # load token sounds
         self.token_sounds.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'token_1.ogg'))))
@@ -1011,7 +1088,7 @@ class Game():
         for bullet in self.enemy_bullets:
             if bullet.rect.colliderect(self.player.rect):
                 bullet.dead = True
-                self.psc.spawnBurstDirection(self.player.rect.x, self.player.rect.y, 270, 20, 30)
+                self.psc.spawnBurstDirection(self.player.rect.x, self.player.rect.y, 270, 5, 60)
                 self.sound_enemy_dead[random.randint(0,3)].play()
                 self.player.lostLife()
                 self.sound_player_death.play()
@@ -1066,14 +1143,8 @@ class Game():
         self.spawnEnemy()
         self.spawnToken()
         
-        self.scroller_curr_offy += 8
-        if self.scroller_curr_offy > 0: 
-            screen.blit(self.scroller_image,(0,self.scroller_init_offy - self.scroller_curr_offy))
-            
-        if self.scroller_curr_offy > SCREEN_HEIGHT:
-            self.scroller_curr_offy = self.scroller_init_offy
-            
-        screen.blit(self.scroller_image,(0,self.scroller_curr_offy))
+        # draw back scroller
+        self.background_scroller.draw()
         
         self.starfield.update()
         self.starfield.draw()
@@ -1109,6 +1180,7 @@ class Game():
         
         self.starfield.update()
         self.starfield.draw()
+        self.background_scroller.draw()
         self.screen_intro.draw()
         
     def drawLifeLost(self):
@@ -1118,8 +1190,8 @@ class Game():
         if self.gamestate_delay == 1:
             pass
         else:
-            self.starfield.update()
-            self.starfield.draw()
+            #self.starfield.update()
+            #self.starfield.draw()
             self.psc.update()
             self.drawArena()
             self.screen_life_lost.draw()
@@ -1137,6 +1209,7 @@ class Game():
         
         self.starfield.update()
         self.starfield.draw()
+        self.background_scroller.draw()
         self.screen_game_over.draw()
         
         
