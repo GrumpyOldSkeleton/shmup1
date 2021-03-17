@@ -38,9 +38,7 @@ D_RIGHT = 3
 pygame.mixer.init()
 pygame.init()
 pygame.display.set_caption('Shmup1')
-#screen = pygame.display.set_mode([SCREEN_WIDTH, SCREEN_HEIGHT])
-
-screen = pygame.display.set_mode([SCREEN_WIDTH, SCREEN_HEIGHT], pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.SCALED, vsync=1)
+screen = pygame.display.set_mode([SCREEN_WIDTH, SCREEN_HEIGHT])
 clock = pygame.time.Clock()
       
 #=======================================================================
@@ -67,9 +65,7 @@ class ScorePartical():
         self.alpha -= 0.2
         self.alpha = max(0,self.alpha)
         self.image.set_alpha(self.alpha)
-        
-        # gravity hack
-        self.vel.y += 1.6
+
         
     def draw(self):
         
@@ -98,7 +94,7 @@ class Partical():
         self.alpha = 255   
         self.acc.setFromAngle(angle)
         self.acc.mult(speed)
-        self.image = pygame.Surface([self.size, 4])
+        self.image = pygame.Surface([self.size, random.choice((2,4,12))]) # particals have random height
         self.image.fill(colour)
         self.image.set_alpha(self.alpha)
         
@@ -151,7 +147,7 @@ class ParticleSystem():
             # vary the angle a little bit
             angle = (angle + random.uniform(-spread, spread)) % 360
             speed = random.uniform(0.05, 2.0)
-            size = random.randint(4, 32)
+            size = random.randint(4, 64) # this is width of the partical
             p = Partical(self.pos, angle, speed, size, c)
             self.particles.append(p)
             
@@ -167,7 +163,7 @@ class ParticleSystem():
                 
             angle = n * step
             speed = random.uniform(1.0, 5.0)
-            size = random.randint(8, 32)
+            size = random.randint(4, 64) # this is width of the partical
             
             p = Partical(self.pos, angle, speed, size, c)
             self.particles.append(p)
@@ -178,7 +174,7 @@ class ParticleSystem():
         step = 360 // self.max_particles
         for n in range(0, self.max_particles):
             if self.max_particles == 1:
-                angle = random.randint(0, 360)
+                angle = random.randint(180, 360)
             else:
                 angle = n * step
                 
@@ -446,18 +442,19 @@ class Player():
     
     def __init__(self):
         
-        self.pos        = Vector2(SCREEN_WIDTH // 2 - 12, SCREEN_HEIGHT - 30)
-        self.vel        = Vector2(0.0, 0.0)
-        self.vel_target = Vector2(0.0, 0.0)
-        self.images     = []
-        self.rect       = None
-        self.speed      = 5.0
-        self.gun_heat   = 0
-        self.gun_heat_max = 100
-        self.gun_level  = 2
-        self.lives      = 3
-        self.this_frame = 0
-        self.image_index = 0
+        self.pos           = Vector2(SCREEN_WIDTH // 2 - 12, SCREEN_HEIGHT - 30)
+        self.vel           = Vector2(0.0, 0.0)
+        self.vel_target    = Vector2(0.0, 0.0)
+        self.images        = []
+        self.rect          = None
+        self.speed         = 5.0
+        self.gun_heat      = 0
+        self.gun_heat_max  = 100
+        self.gun_level     = 1
+        self.gun_level_max = 3
+        self.lives         = 3
+        self.this_frame    = 0
+        self.image_index   = 0
         
     def reset(self):
         
@@ -478,6 +475,15 @@ class Player():
     def lostLife(self):
         
         self.lives -= 1
+        
+    def gunIsMax(self):
+        
+        return self.gun_level >= self.gun_level_max
+        
+    def addGunLevel(self):
+        
+        if not self.gunIsMax():
+            self.gun_level += 1
         
     def setImage(self, image):
         
@@ -619,6 +625,7 @@ class PowerUp():
         self.vel = Vector2(0, 2)
         self.images = []
         self.rect = None
+        self.dead = False
         
     def setImage(self, image):
         
@@ -709,7 +716,7 @@ class ScreenIntro():
         
         self.game         = game
         self.title        = self.game.font_title.render('SHMUP1', 0,  palettes.COLOUR_PICO8_ORANGE)
-        self.footer_text  = '(1983) style shmup...shoot the enemies for points...collect tokens for bonus points...and try not to die! ... Arrow keys to move, Z to fire. Spacebar to start game.'
+        self.footer_text  = 'shoot enemies...collect bonus tokens and gun powerups! ... arrow keys to move, Z to fire. spacebar to start game.'
         self.footer       = self.game.font_small.render(self.footer_text, 0,  palettes.COLOUR_PICO8_LAVENDER)
         self.footer_xoff  = SCREEN_WIDTH # (SCREEN_WIDTH - self.footer.get_width()) // 2
         self.footer_width = self.footer.get_width()
@@ -742,7 +749,7 @@ class ScreenIntro():
         screen.blit(self.title, (self.title_xoff, y + 150))
         
         
-        self.footer_xoff -= 4
+        self.footer_xoff -= 3
         if self.footer_xoff < -self.footer_width:
             self.footer_xoff = SCREEN_WIDTH
             
@@ -844,6 +851,11 @@ class ScreenLifeLost():
             x += letter_spacing
 
 
+            
+        
+        
+        
+
 
         
 # ======================================================================
@@ -872,6 +884,7 @@ class Game():
         self.token_images        = [] # token images
         self.token_sounds        = [] # token sounds
         self.score_images        = [] # score images for partical system
+        self.powerup_images      = [] # powerup images
         self.enemy_image_count   = 4  # number of enemy images
         self.font_small          = None 
         self.font_title          = None       
@@ -881,6 +894,7 @@ class Game():
         self.player_life_image   = None
         self.sound_player_zap    = None
         self.sound_player_death  = None
+        self.sound_gun_overheat  = None
         self.sound_enemy_dead    = []
         self.score               = 0
         
@@ -913,12 +927,13 @@ class Game():
 
     def resumeAfterLifeLost(self):
         
-        self.player.gun_heat = 0
-        self.enemies         = []
-        self.enemy_bullets   = []
-        self.player_bullets  = []
-        self.powerups        = []
-        self.tokens          = []
+        self.player.gun_heat  = 0
+        self.player.gun_level = 1
+        self.enemies          = []
+        self.enemy_bullets    = []
+        self.player_bullets   = []
+        self.powerups         = []
+        self.tokens           = []
         self.psc.killAll() 
 
 
@@ -946,13 +961,28 @@ class Game():
     def fire(self):
         
         if not self.player.gunOverHeated():
-            for i in range(self.player.gun_level):
-                b = PlayerBullet(self.player.pos.x + 8 + i * 20, self.player.pos.y - 10)
+            
+            # create a xpositions tuple of where to spawn player
+            # bullets based on whether we are single/double/triple shotting
+            centrex = self.player.pos.x + 18
+            xpositions = ()
+            
+            if self.player.gun_level == 1:
+                xpositions = (centrex,)                
+            elif self.player.gun_level == 2:
+                xpositions = (centrex-10, centrex + 10)
+            else:
+                xpositions = (centrex-16, centrex, centrex + 16)
+                
+            for x in xpositions:
+                b = PlayerBullet(x, self.player.pos.y - 10)
                 b.setImage(self.player_bullet_image)
                 self.player_bullets.append(b)
     
             self.player.fire()
             self.sound_player_zap.play()
+        else:
+            self.sound_gun_overheat.play()
         
         
     def spawnEnemy(self):
@@ -976,18 +1006,34 @@ class Game():
                 
                 
     def spawnPowerUp(self):
-        
-        pass
+
+        if len(self.powerups) < 1 and not self.player.gunIsMax():
+            if random.random() > 0.99:
+                p = PowerUp(random.randint(100, SCREEN_WIDTH-100), 0)
+                p.setImage(self.powerup_images[0]) 
+                self.powerups.append(p)
         
     def spawnToken(self):
         
-        if len(self.tokens) < 2:
+        if len(self.tokens) < 4:
             if random.random() > 0.9:
-                token_value = 100
-                token_type = random.randint(0, len(self.token_images)-1)
-                t = Token(random.randint(100, SCREEN_WIDTH-100), 0, token_value)
-                t.setImage(self.token_images[token_type]) 
-                self.tokens.append(t)
+                
+                # pick a random spawn position but if it is already in use by a token
+                # don't waste time chosing another just don't spawn anything this frame
+                spawnposition = random.choice((100,200,300,400,500))
+                position_is_unused = True
+                
+                for t in self.tokens:
+                    if t.pos.x == spawnposition:
+                        position_is_unused = False
+                        break
+                        
+                if position_is_unused:
+                    token_value = 100
+                    token_type = random.randint(0, len(self.token_images)-2)
+                    t = Token(spawnposition, 0, token_value)
+                    t.setImage(self.token_images[token_type]) 
+                    self.tokens.append(t)
         
         
     def loadAssets(self):
@@ -1000,7 +1046,17 @@ class Game():
         # load token images
         self.token_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'token_1.png'))).convert())
         self.token_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'token_2.png'))).convert())
-        self.token_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'token_3.png'))).convert())
+        
+        for img in self.token_images:
+            img.set_colorkey(palettes.COLOUR_PICO8_BLACK)
+            
+        # load powerup images
+        self.powerup_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'powerup_1.png'))).convert())
+        self.powerup_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'powerup_small.png'))).convert())
+        self.powerup_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'powerup_large.png'))).convert())
+        
+        for img in self.powerup_images:
+            img.set_colorkey(palettes.COLOUR_PICO8_BLACK)
         
         # load score images
         self.score_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'score_10.png'))).convert())
@@ -1013,6 +1069,7 @@ class Game():
         # load player sounds
         self.sound_player_zap   = pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'player_zap.ogg')))
         self.sound_player_death = pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'player_death.ogg')))
+        self.sound_gun_overheat = pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'player_gun_overheat.ogg')))
         
         # load enemy bullet images
         self.enemy_bullet_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'enemy_bullet_1.png'))).convert())
@@ -1032,6 +1089,7 @@ class Game():
          
         # load token sounds
         self.token_sounds.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'token_1.ogg'))))
+        self.token_sounds.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'powerup_1.ogg'))))
         
         
         self.player_bullet_image = pygame.image.load(str(FILEPATH.joinpath('png' ,'player_bullet_2.png'))).convert()
@@ -1069,11 +1127,10 @@ class Game():
         self.screen_edge = pygame.Surface((32, SCREEN_HEIGHT))
         for i in range(SCREEN_HEIGHT // 32):
             self.screen_edge.blit(tile, (0, i*32))
+
+    def collideBulletsWithEnemies(self):
         
-        
-    def doCollisions(self):
-        
-        for bullet in self.player_bullets:
+         for bullet in self.player_bullets:
             for enemy in self.enemies:
                 # player ship fires dual shots, test to see if 1 shot
                 # has already killed the enemy to prevent double scoring bug
@@ -1083,25 +1140,44 @@ class Game():
                     self.psc.spawnBurstCircle(enemy.pos.x, enemy.pos.y, 10)
                     self.psc.spawnScoreBurst(enemy.pos.x, enemy.pos.y, self.score_images[enemy.score_image_index]) # unfinished!
                     self.sound_enemy_dead[random.randint(0,3)].play()
-                    self.score += enemy.score_value
-                    
-        for bullet in self.enemy_bullets:
+                    self.score += enemy.score_value       
+        
+    def collideBulletsWithPlayer(self):
+        
+         for bullet in self.enemy_bullets:
             if bullet.rect.colliderect(self.player.rect):
                 bullet.dead = True
                 self.psc.spawnBurstDirection(self.player.rect.x, self.player.rect.y, 270, 5, 60)
                 self.sound_enemy_dead[random.randint(0,3)].play()
                 self.player.lostLife()
                 self.sound_player_death.play()
-                self.gamestate = GAME_STATE_LIFE_LOST
-                
+                self.gamestate = GAME_STATE_LIFE_LOST       
+
+    def collidePlayerWithTokens(self):
+        
         for token in self.tokens:
             if self.player.rect.colliderect(token.rect):
                 token.dead = True
                 self.score += token.value
                 self.token_sounds[0].play()
                 self.psc.spawnScoreBurst(token.rect.x, token.rect.y, self.score_images[4])
-    
         
+    def collidePlayerWithPowerups(self):
+        
+        for powerup in self.powerups:
+            if self.player.rect.colliderect(powerup.rect):
+                powerup.dead = True
+                self.player.addGunLevel()
+                self.token_sounds[1].play()
+                self.psc.spawnScoreBurst(powerup.rect.x, powerup.rect.y, self.powerup_images[1])
+                
+    def doCollisions(self):
+        
+        self.collideBulletsWithEnemies()
+        self.collideBulletsWithPlayer()
+        self.collidePlayerWithTokens()
+        self.collidePlayerWithPowerups()
+
     def clearTheDead(self):
         
         tmp = [e for e in self.enemies if not e.isDead()]
@@ -1116,6 +1192,8 @@ class Game():
         tmp = [token for token in self.tokens if not token.isDead()]
         self.tokens = tmp
 
+        tmp = [powerup for powerup in self.powerups if not powerup.isDead()]
+        self.powerups = tmp
     
     def drawArena(self):
         
@@ -1123,7 +1201,6 @@ class Game():
         screen.blit(self.screen_edge, (SCREEN_WIDTH-32,0))
         
         # draw score
-        
         screen.blit(self.font_small.render(str(self.score), 0,  palettes.COLOUR_PICO8_RED), (202, 12))
         screen.blit(self.font_small.render(str(self.score), 0,  palettes.COLOUR_PICO8_YELLOW), (200, 10))
         
@@ -1132,16 +1209,16 @@ class Game():
             screen.blit(self.player_life_image, [40 + (i * 36), 10, 8, 8])
         
         # this bar needs to be an object
-        pygame.draw.rect(screen, palettes.COLOUR_PICO8_LIGHTPEACH, [400, 10, 100, 8])
-        pygame.draw.rect(screen, palettes.COLOUR_PICO8_RED       , [400, 10, self.player.gun_heat, 8])
+        if self.player.gunOverHeated():
+            pygame.draw.rect(screen, palettes.COLOUR_PICO8_ORANGE, [396, 12, 108, 16])
+            
+        pygame.draw.rect(screen, palettes.COLOUR_PICO8_LIGHTPEACH, [400, 16, 100, 8])
+        pygame.draw.rect(screen, palettes.COLOUR_PICO8_RED       , [400, 16, self.player.gun_heat, 8])        
         
     def drawGame(self):
         
         self.doCollisions()
         self.clearTheDead()
-        
-        self.spawnEnemy()
-        self.spawnToken()
         
         # draw back scroller
         self.background_scroller.draw()
@@ -1175,6 +1252,9 @@ class Game():
         self.player.draw()
         self.drawArena()
     
+        self.spawnEnemy()
+        self.spawnToken()
+        self.spawnPowerUp()
     
     def drawIntro(self):
         
