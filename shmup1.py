@@ -66,7 +66,6 @@ class ScorePartical():
         self.alpha = max(0,self.alpha)
         self.image.set_alpha(self.alpha)
 
-        
     def draw(self):
         
         screen.blit(self.image, (self.pos.x, self.pos.y))
@@ -94,7 +93,7 @@ class Partical():
         self.alpha = 255   
         self.acc.setFromAngle(angle)
         self.acc.mult(speed)
-        self.image = pygame.Surface([self.size, random.choice((2,4,12))]) # particals have random height
+        self.image = pygame.Surface([self.size, random.choice((2,4,8))]) # particals have random height
         self.image.fill(colour)
         self.image.set_alpha(self.alpha)
         
@@ -414,13 +413,21 @@ class Enemy():
         
     def fire(self):
         
-        if self.isOnscreen:
+        if self.isOnscreen and self.canFire():
             x = random.random()
             bullet_vx = 0
             bullet_vy = 7 + random.random()
             
             if x > 0.995:
                 game.enemyFire(self.pos.x + 16, self.pos.y, bullet_vx, bullet_vy, self)
+                
+            if x < 0.008 and self.pos.y > 100 and self.pos.y < 200:
+                game.enemyBomb(self.pos.x + 16, self.pos.y)
+                
+    def canFire(self):
+        
+        # don't allow firing at point blank to player
+        return self.pos.y < SCREEN_HEIGHT-60
 
     def isOnscreen(self):
         
@@ -466,6 +473,15 @@ class Player():
         
     def fire(self):
         
+        self.gunHeatUp()
+        
+    def gunCoolDown(self):
+        
+        if self.gun_heat > 0:
+            self.gun_heat -= 0.6
+    
+    def gunHeatUp(self):
+        
         self.gun_heat += 10
         
     def gunOverHeated(self):
@@ -507,8 +523,7 @@ class Player():
         self.rect.y = self.pos.y
         
         # cooldown gun each frame
-        if self.gun_heat > 0:
-            self.gun_heat -= 0.6
+        self.gunCoolDown()
         
     def move(self, direction):
         
@@ -546,7 +561,7 @@ class Player():
         
         
 # ======================================================================
-# bullet class
+# player bullet class
 # ======================================================================
 
 class PlayerBullet():
@@ -578,6 +593,9 @@ class PlayerBullet():
         
         screen.blit(self.image, (self.pos.x, self.pos.y))
 
+# ======================================================================
+# enemy bullet class
+# ======================================================================
 
 class EnemyBullet():
     
@@ -610,6 +628,58 @@ class EnemyBullet():
     def draw(self):
         
         screen.blit(self.image, (self.pos.x, self.pos.y))
+        
+# ======================================================================
+# enemy bomb class
+# ======================================================================
+
+class EnemyBomb():
+    
+    def __init__(self, x, y, vx, vy):
+        
+        self.pos = Vector2(x, y)
+        self.vel = Vector2(vx, vy)
+        self.acc = Vector2(0,0.01)
+        self.size = 8
+        
+        self.images = None
+        self.rect  = None
+        self.dead  = False
+        self.anim_frame = 0
+        self.ticks = 0
+        
+    def setImage(self, image):
+        
+        self.images = image
+        self.rect = self.images[0].get_rect()
+        self.size = self.images[0].get_width()
+        
+    def isDead(self):
+        
+        return self.dead or self.pos.y > SCREEN_HEIGHT
+        
+    def update(self):
+        
+        self.vel.add(self.acc)
+        self.pos.add(self.vel)
+        
+        # bounce off the walls (32 to allow for wall thickness)
+        if self.pos.x < 32 or self.pos.x > SCREEN_WIDTH - self.size - 32:
+            self.vel.x *= -1
+            
+        self.rect.x = self.pos.x
+        self.rect.y = self.pos.y
+        
+        self.ticks += 1
+        if self.ticks > 4:
+            self.anim_frame += 1
+            if self.anim_frame > len(self.images)-1:
+                self.anim_frame = 0
+            self.ticks = 0
+        
+    def draw(self):
+        
+        screen.blit(self.images[self.anim_frame], (self.pos.x, self.pos.y))
      
      
      
@@ -878,6 +948,7 @@ class Game():
         self.enemy_sounds        = [] # the enemy sounds
         self.enemy_bullets       = [] # live enemy bullets
         self.enemy_bullet_images = [] # enemy bullet images
+        self.enemy_bomb_images   = [] # enemy bomb images
         self.player_bullets      = [] # live player bullets
         self.powerups            = [] # live powerups
         self.tokens              = [] # live tokens
@@ -957,6 +1028,14 @@ class Game():
         eb.setImage(self.enemy_bullet_images[img_idx])
         self.enemy_bullets.append(eb)
         
+    def enemyBomb(self, x, y):
+
+        direction = random.choice((-4, 4))
+        bomb = EnemyBomb(x, y, direction, 0)
+        bomb.setImage(self.enemy_bomb_images)
+        self.enemy_bullets.append(bomb)
+        self.enemy_sounds[2].play()
+        
         
     def fire(self):
         
@@ -1018,8 +1097,8 @@ class Game():
         if len(self.tokens) < 4:
             if random.random() > 0.9:
                 
-                # pick a random spawn position but if it is already in use by a token
-                # don't waste time chosing another just don't spawn anything this frame
+                # try pick a free random spawn position but if it is already in use by a token
+                # don't waste time choosing another just don't spawn anything this frame
                 spawnposition = random.choice((100,200,300,400,500))
                 position_is_unused = True
                 
@@ -1065,7 +1144,6 @@ class Game():
         self.score_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'score_40.png'))).convert())
         self.score_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'score_100.png'))).convert())
         
-        
         # load player sounds
         self.sound_player_zap   = pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'player_zap.ogg')))
         self.sound_player_death = pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'player_death.ogg')))
@@ -1076,6 +1154,21 @@ class Game():
         self.enemy_bullet_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'enemy_bullet_2.png'))).convert())
         self.enemy_bullet_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'enemy_bullet_3.png'))).convert())
         self.enemy_bullet_images.append(pygame.image.load(str(FILEPATH.joinpath('png' ,'enemy_bullet_4.png'))).convert())
+
+        # load enemy bomb images        
+        bombsheet = pygame.image.load(str(FILEPATH.joinpath('png' ,'enemy_bomb.png'))).convert()
+        bombsheet.set_colorkey(palettes.COLOUR_PICO8_BLACK)
+            
+        offsetx        = 0
+        sprite_width   = 12
+        sprite_height  = 12
+        sprite_spacing = 4
+        
+        for n in range(4):
+            tup = (offsetx, 0, sprite_width, sprite_height)
+            img = bombsheet.subsurface(tup)
+            self.enemy_bomb_images.append(img)
+            offsetx += sprite_width + sprite_spacing     
         
         # load enemy explosion sounds
         self.sound_enemy_dead.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'enemy_dead_1.ogg'))))
@@ -1086,6 +1179,7 @@ class Game():
         # load enemy spawn and shoot sounds
         self.enemy_sounds.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'enemy_spawn_1.ogg'))))
         self.enemy_sounds.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'enemy_zap_1.ogg'))))
+        self.enemy_sounds.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'enemy_bomb_1.ogg'))))
          
         # load token sounds
         self.token_sounds.append(pygame.mixer.Sound(str(FILEPATH.joinpath('sounds' ,'token_1.ogg'))))
@@ -1114,19 +1208,27 @@ class Game():
             self.enemy_images.append(img)
             offsetx += sprite_width + sprite_spacing
             
-        # load player images
-        player_image = pygame.image.load(str(FILEPATH.joinpath('png' ,'player.png'))).convert()
-        player_image.set_colorkey(palettes.COLOUR_PICO8_BLACK)
-        self.player.setImage(player_image)
-        player_image = pygame.image.load(str(FILEPATH.joinpath('png' ,'player_2.png'))).convert()
-        player_image.set_colorkey(palettes.COLOUR_PICO8_BLACK)
-        self.player.setImage(player_image)
+        # load player images        
+        sheet = pygame.image.load(str(FILEPATH.joinpath('png' ,'player_sheet.png'))).convert()
+        sheet.set_colorkey(palettes.COLOUR_PICO8_BLACK)
+            
+        offsetx        = 0
+        sprite_width   = 28
+        sprite_height  = 28
+        sprite_spacing = 4
+        
+        for n in range(3):
+            tup = (offsetx, 0, sprite_width, sprite_height)
+            img = sheet.subsurface(tup)
+            self.player.setImage(img)
+            offsetx += sprite_width + sprite_spacing        
         
         # load edge tile and make edge surfaces
         tile = pygame.image.load(str(FILEPATH.joinpath('png' ,'edge.png'))).convert()
         self.screen_edge = pygame.Surface((32, SCREEN_HEIGHT))
         for i in range(SCREEN_HEIGHT // 32):
             self.screen_edge.blit(tile, (0, i*32))
+
 
     def collideBulletsWithEnemies(self):
         
@@ -1138,7 +1240,7 @@ class Game():
                     bullet.dead = True
                     enemy.dead = True
                     self.psc.spawnBurstCircle(enemy.pos.x, enemy.pos.y, 10)
-                    self.psc.spawnScoreBurst(enemy.pos.x, enemy.pos.y, self.score_images[enemy.score_image_index]) # unfinished!
+                    self.psc.spawnScoreBurst(enemy.pos.x, enemy.pos.y, self.score_images[enemy.score_image_index]) 
                     self.sound_enemy_dead[random.randint(0,3)].play()
                     self.score += enemy.score_value       
         
@@ -1169,7 +1271,7 @@ class Game():
                 powerup.dead = True
                 self.player.addGunLevel()
                 self.token_sounds[1].play()
-                self.psc.spawnScoreBurst(powerup.rect.x, powerup.rect.y, self.powerup_images[1])
+                self.psc.spawnScoreBurst(powerup.rect.x, powerup.rect.y, self.powerup_images[self.player.gun_level-1])
                 
     def doCollisions(self):
         
@@ -1180,6 +1282,7 @@ class Game():
 
     def clearTheDead(self):
         
+        # clear out any dead objects
         tmp = [e for e in self.enemies if not e.isDead()]
         self.enemies = tmp
         
@@ -1208,7 +1311,7 @@ class Game():
         for i in range(self.player.lives):
             screen.blit(self.player_life_image, [40 + (i * 36), 10, 8, 8])
         
-        # this bar needs to be an object
+        # this bar really needs to be an object
         if self.player.gunOverHeated():
             pygame.draw.rect(screen, palettes.COLOUR_PICO8_ORANGE, [396, 12, 108, 16])
             
@@ -1339,12 +1442,7 @@ class Game():
             elif self.gamestate == GAME_STATE_OVER:
                 self.drawGameOver()
                  
-
-            # ~ fps = str(int(clock.get_fps()))
-            # ~ fps_text = self.font_small.render(fps, 0, (255,255,255))
-            # ~ screen.blit(fps_text, (20, 540))
-
-            
+ 
             clock.tick(self.fps)            
             pygame.display.flip()
             
